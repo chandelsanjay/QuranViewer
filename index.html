@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quran Page Viewer</title>
+    <!-- Load calligraphic fonts for English and Arabic headings -->
+    <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Amiri&display=swap" rel="stylesheet">
+  <style>
+    /* Reset basic margins and paddings */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: sans-serif;
+      /* Use the provided gold frame image as the page background.  This image
+         contains an ornate swirling border around the edges with a plain
+         center.  Setting it on the body instead of a pseudo-element allows
+         us to remove the separate border and parchment layers. */
+      background-image: url('images/custom_background.jpg');
+      background-size: cover;
+      background-position: center center;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+      color: #333;
+      /* Prevent the launch page from scrolling so all content fits neatly on screen */
+      overflow-y: hidden;
+    }
+
+    /* Remove the separate border pseudo-element.  The gold frame is now the
+       page background itself, so there is no need for an overlay. */
+    body::before {}
+
+    /* Container for the launch page content; sits inside the decorative border */
+    .content-container {
+      position: relative;
+      width: calc(100% - 12vw);
+      height: calc(100vh - 12vh);
+      margin: 6vh 6vw;
+      /* Make the container transparent so the ornate background shows through.
+         The margins ensure the text and thumbnails sit comfortably within
+         the plain center of the frame without overlapping the decorative border. */
+      background-image: none;
+      background-color: transparent;
+      /* Create a stacking context so our pseudo-element border sits beneath the content */
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 5vh 4vw;
+      box-sizing: border-box;
+      overflow: hidden;
+      z-index: 1;
+    }
+
+    /* Remove the internal border pseudo-element. */
+    .content-container::before {}
+
+    /* Gallery layout and thumbnail styling */
+    :root {
+      /* Thumbnail dimensions and styling variables */
+      --thumb-w: 200px;
+      --thumb-h: 120px;
+      --thumb-radius: 12px;
+      --thumb-border: 1.5px solid #b89a6a;
+    }
+
+    .gallery {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      padding: 16px 12px;
+      gap: 18px;
+    }
+
+    /* Each gallery item contains the image and its caption */
+    .gallery .item {
+      width: var(--thumb-w);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .gallery .item img {
+      width: var(--thumb-w);
+      height: var(--thumb-h);
+      object-fit: cover;
+      border-radius: var(--thumb-radius);
+      border: var(--thumb-border);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+      cursor: pointer;
+      transition: transform 0.15s ease;
+    }
+
+    .gallery .item img:hover {
+      transform: translateY(-2px);
+    }
+
+    /* Caption styling for thumbnail labels */
+    .caption {
+      width: var(--thumb-w);
+      margin-top: 8px;
+      text-align: center;
+      word-wrap: break-word;
+      overflow-wrap: anywhere;
+    }
+
+    .caption .en {
+      font-family: 'Great Vibes', cursive;
+      font-size: 16px;
+      line-height: 1.2;
+      color: #5a3d26;
+    }
+
+    .caption .ar {
+      font-family: 'Amiri', serif;
+      font-size: 15px;
+      line-height: 1.35;
+      color: #5a3d26;
+      direction: rtl;
+    }
+
+
+    /* Viewer overlay */
+    .viewer {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      /* Use a fully opaque black backdrop so the ornate page background disappears
+         entirely when viewing images. Without a fully opaque overlay, the gold
+         frame would still be visible behind the image. */
+      background-color: rgba(0, 0, 0, 1);
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 999;
+      overflow: hidden;
+    }
+
+    .viewer.active {
+      display: flex;
+    }
+
+    .viewer-image-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      /* Fill the container with black so the ornate background is not visible
+         behind pages. Without an explicit background, the gold frame image
+         appears around the full-bleed image at the top and bottom. */
+      background-color: #000;
+      touch-action: none; /* disable default gestures so we can implement custom */
+      cursor: grab;
+    }
+
+    .viewer-image-container img {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      /* Ensure the image scales proportionally to fit within the container by default. */
+      object-fit: contain;
+      object-position: center;
+      user-select: none;
+      -webkit-user-drag: none;
+      touch-action: none;
+      will-change: transform;
+    }
+
+    #closeBtn {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      background-color: rgba(255, 255, 255, 0.85);
+      border: none;
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 28px;
+      line-height: 1;
+      cursor: pointer;
+      z-index: 1000;
+    }
+
+    /* Control panel for zoom and gallery buttons */
+    .controls {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 12px;
+      z-index: 1000;
+    }
+
+    .controls button {
+      background-color: rgba(255, 255, 255, 0.85);
+      border: none;
+      border-radius: 4px;
+      padding: 10px 16px;
+      font-size: 18px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .controls button:hover {
+      background-color: rgba(255, 255, 255, 1);
+    }
+
+    /* Launch header styling */
+    .launch-header {
+      text-align: center;
+      color: #543C21;
+      /* Give the header generous vertical padding but prevent the page from needing to scroll */
+      padding: 2vh 16px 1vh;
+      margin: 0 auto;
+      max-width: 1000px;
+    }
+
+    .english-title {
+      font-family: 'Great Vibes', cursive;
+      font-size: 60px;
+      margin: 0;
+      line-height: 1.2;
+    }
+
+    .arabic-title {
+      font-family: 'Amiri', serif;
+      font-size: 42px;
+      margin: 10px 0 20px 0;
+      line-height: 1.2;
+    }
+
+    .instructions {
+      font-family: 'Amiri', serif;
+      font-size: 20px;
+      line-height: 1.5;
+      margin: 12px 0;
+      color: #5a3d26;
+    }
+
+    .instructions.english {
+      font-family: 'Great Vibes', cursive;
+      /* Slightly increase size for better readability while maintaining decorative script */
+      font-size: 24px;
+      line-height: 1.35;
+    }
+
+    .instructions.arabic {
+      font-family: 'Amiri', serif;
+      font-size: 24px;
+      line-height: 1.45;
+    }
+
+    /* Header section styling */
+    .header {
+      text-align: center;
+      padding: 24px 16px;
+      color: #333;
+    }
+
+    .header h1 {
+      font-size: 32px;
+      margin-bottom: 4px;
+    }
+
+    .header h2 {
+      font-size: 28px;
+      font-weight: normal;
+      margin-top: 0;
+      margin-bottom: 12px;
+    }
+
+    .header p {
+      max-width: 800px;
+      margin: 0 auto;
+      font-size: 16px;
+      line-height: 1.4;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <!-- Launch page content inside the border frame -->
+  <div class="content-container">
+    <!-- Launch page header with calligraphic titles and instructions -->
+    <div class="launch-header">
+    <h1 class="english-title">Explore the Quran</h1>
+    <h2 class="arabic-title" dir="rtl">استكشف القرآن الكريم</h2>
+    <p class="instructions english">Tap any page to view it in detail. Use the 5× and 2× buttons or pinch gestures to zoom. Drag with one finger to pan; tap Gallery to return.</p>
+    <p class="instructions arabic" dir="rtl">انقر على أي صفحة لعرضها بالتفصيل. استخدم أزرار التكبير ٥× و٢× أو إيماءات القرص للتكبير. اسحب بإصبع واحد للتحريك؛ انقر على معرض للعودة.</p>
+    </div>
+
+    <!-- Thumbnail gallery with captions (cover first) -->
+    <div class="gallery" id="gallery">
+      <!-- 1. Cover & binding -->
+      <div class="item">
+        <img src="images/page1.jpg" data-full="images/page1.jpg" alt="Cover & binding">
+        <div class="caption">
+          <div class="en">Cover &amp; binding</div>
+          <div class="ar">الغلاف والتجليد</div>
+        </div>
+      </div>
+      <!-- 2. Surah An-Nisa’ & Al-Haqqah -->
+      <div class="item">
+        <img src="images/page2.jpg" data-full="images/page2.jpg" alt="Surah An-Nisa and Al-Haqqah">
+        <div class="caption">
+          <div class="en">Surah An-Nisā’ (4) &amp; Al-Ḥāqqah (69)</div>
+          <div class="ar">سورة النساء (٤) وسورة الحاقة (٦٩)</div>
+        </div>
+      </div>
+      <!-- 3. Surah Al-Kahf — Opening -->
+      <div class="item">
+        <img src="images/page3.jpg" data-full="images/page3.jpg" alt="Surah Al-Kahf Opening">
+        <div class="caption">
+          <div class="en">Surah Al-Kahf (18) — Opening</div>
+          <div class="ar">سورة الكهف (١٨) — بداية</div>
+        </div>
+      </div>
+      <!-- 4. Surah Al-Kahf — Continuation -->
+      <div class="item">
+        <img src="images/page4.jpg" data-full="images/page4.jpg" alt="Surah Al-Kahf Continuation">
+        <div class="caption">
+          <div class="en">Surah Al-Kahf (18) — Continuation</div>
+          <div class="ar">سورة الكهف (١٨) — متابعة</div>
+        </div>
+      </div>
+      <!-- 5. Al-Fatiha & start of Al-Baqarah -->
+      <div class="item">
+        <img src="images/page5.jpg" data-full="images/page5.jpg" alt="Al-Fatiha & start of Al-Baqarah">
+        <div class="caption">
+          <div class="en">Al-Fātiḥah (1) &amp; start of Al-Baqarah (2)</div>
+          <div class="ar">سورة الفاتحة (١) وبداية سورة البقرة (٢)</div>
+        </div>
+      </div>
+    </div> <!-- end gallery -->
+  </div> <!-- end content-container -->
+
+  <!-- Fullscreen viewer -->
+  <div class="viewer" id="viewer">
+    <button id="closeBtn" aria-label="Close">&times;</button>
+    <div class="viewer-image-container" id="imageContainer">
+      <img id="viewerImage" src="" alt="Full page" />
+    </div>
+    <!-- On-screen controls for touch devices -->
+    <div class="controls" id="controls">
+      <button id="zoom5Btn" type="button">5×</button>
+      <button id="zoom2Btn" type="button">2×</button>
+      <button id="galleryBtn" type="button">Gallery</button>
+    </div>
+  </div>
+
+  <script>
+    // Collect references to DOM elements
+    const galleryItems = document.querySelectorAll('.gallery img');
+    const viewer = document.getElementById('viewer');
+    const viewerImage = document.getElementById('viewerImage');
+    const imageContainer = document.getElementById('imageContainer');
+    const closeBtn = document.getElementById('closeBtn');
+
+    // Transformation state
+    // 'scale' represents the current zoom factor applied on top of the initial fit scale
+    let scale = 1;
+    // 'initialFitScale' stores the scale required to fit the image within the viewer container
+    let initialFitScale = 1;
+    // Translation offsets (in pixels)
+    let lastX = 0;
+    let lastY = 0;
+    let pointers = {};
+    let lastDistance = 0;
+
+    // When a thumbnail is clicked, show that image in the viewer
+    galleryItems.forEach(item => {
+      item.addEventListener('click', () => {
+        const src = item.getAttribute('data-full');
+        viewer.classList.add('active');
+        // Assign the src and wait for it to load before fitting
+        viewerImage.src = src;
+        // Once the image loads, reset the transform so the page fits entirely
+        viewerImage.onload = () => {
+          /*
+            Instead of calculating a custom fit scale based on the image's natural
+            dimensions, rely on CSS (object-fit: contain) to ensure the page
+            fills the viewer container at its maximum size. We simply set
+            initialFitScale to 1, clear any previous zoom and translation
+            offsets, and reset pointer tracking so the new image starts
+            centered and unscaled. The zoom buttons will then multiply
+            relative to this base scale.
+          */
+          initialFitScale = 1;
+          scale = 1;
+          lastX = 0;
+          lastY = 0;
+          pointers = {};
+          lastDistance = 0;
+          updateTransform();
+        };
+      });
+    });
+
+    // Close viewer when close button is clicked
+    closeBtn.addEventListener('click', () => {
+      viewer.classList.remove('active');
+    });
+
+    // Helper: reset pan/zoom to defaults
+    function resetTransform() {
+      // Reset zoom to fit scale and center the image
+      scale = 1;
+      const containerRect = imageContainer.getBoundingClientRect();
+      const imgNaturalWidth = viewerImage.naturalWidth;
+      const imgNaturalHeight = viewerImage.naturalHeight;
+      const scaledWidth = imgNaturalWidth * initialFitScale;
+      const scaledHeight = imgNaturalHeight * initialFitScale;
+      lastX = (containerRect.width - scaledWidth) / 2;
+      lastY = (containerRect.height - scaledHeight) / 2;
+      updateTransform();
+    }
+
+    // Helper: compute distance between two pointer events
+    function getDistance(p1, p2) {
+      const dx = p2.clientX - p1.clientX;
+      const dy = p2.clientY - p1.clientY;
+      return Math.hypot(dx, dy);
+    }
+
+    // Update the CSS transform on the image
+    function updateTransform() {
+      // Clamp scale to prevent zooming too far in or out
+      // Clamp scale to prevent zooming too far in or out; scale is relative to initialFitScale
+      const minScale = 1;
+      const maxScale = 8;
+      scale = Math.max(minScale, Math.min(maxScale, scale));
+      const combinedScale = initialFitScale * scale;
+      viewerImage.style.transform = `translate(${lastX}px, ${lastY}px) scale(${combinedScale})`;
+    }
+
+    // Pointer event handlers for panning and pinch-zoom
+    imageContainer.addEventListener('pointerdown', (e) => {
+      // Only respond to primary button or touches
+      e.preventDefault();
+      imageContainer.setPointerCapture(e.pointerId);
+      pointers[e.pointerId] = e;
+    });
+
+    imageContainer.addEventListener('pointermove', (e) => {
+      if (!pointers[e.pointerId]) return;
+      const prevEvent = pointers[e.pointerId];
+      pointers[e.pointerId] = e;
+      const pointerIds = Object.keys(pointers);
+
+      if (pointerIds.length === 1) {
+        // Single pointer: panning
+        const dx = e.clientX - prevEvent.clientX;
+        const dy = e.clientY - prevEvent.clientY;
+        lastX += dx;
+        lastY += dy;
+        updateTransform();
+      } else if (pointerIds.length === 2) {
+        // Two pointers: pinch-zoom
+        const pA = pointers[pointerIds[0]];
+        const pB = pointers[pointerIds[1]];
+        const currentDistance = getDistance(pA, pB);
+        if (lastDistance > 0) {
+          // Calculate zoom ratio
+          const ratio = currentDistance / lastDistance;
+          const prevScale = scale;
+          scale *= ratio;
+          // Adjust translation to maintain zoom focal point around center of pinch
+          const rect = viewerImage.getBoundingClientRect();
+          const midX = (pA.clientX + pB.clientX) / 2;
+          const midY = (pA.clientY + pB.clientY) / 2;
+          // Compute offsets within the image
+          const offsetX = midX - rect.left;
+          const offsetY = midY - rect.top;
+          lastX -= offsetX * ((scale / prevScale) - 1);
+          lastY -= offsetY * ((scale / prevScale) - 1);
+          updateTransform();
+        }
+        lastDistance = currentDistance;
+      }
+    });
+
+    imageContainer.addEventListener('pointerup', (e) => {
+      delete pointers[e.pointerId];
+      if (Object.keys(pointers).length < 2) {
+        lastDistance = 0;
+      }
+    });
+
+    imageContainer.addEventListener('pointercancel', (e) => {
+      delete pointers[e.pointerId];
+      if (Object.keys(pointers).length < 2) {
+        lastDistance = 0;
+      }
+    });
+
+    // Wheel zoom for desktop users
+    imageContainer.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY;
+      const zoomFactor = 0.1;
+      const prevScale = scale;
+      if (delta < 0) {
+        scale *= (1 + zoomFactor);
+      } else {
+        scale *= (1 - zoomFactor);
+      }
+      // Focus zoom around the mouse pointer
+      const rect = viewerImage.getBoundingClientRect();
+      const offsetX = e.clientX - rect.left;
+      const offsetY = e.clientY - rect.top;
+      lastX -= offsetX * ((scale / prevScale) - 1);
+      lastY -= offsetY * ((scale / prevScale) - 1);
+      updateTransform();
+    }, { passive: false });
+
+    // Double click/tap to toggle zoom level
+    imageContainer.addEventListener('dblclick', (e) => {
+      const prevScale = scale;
+      if (scale === 1) {
+        scale = 2;
+      } else {
+        scale = 1;
+        lastX = 0;
+        lastY = 0;
+      }
+      // Focus zoom around double-click position
+      const rect = viewerImage.getBoundingClientRect();
+      const offsetX = e.clientX - rect.left;
+      const offsetY = e.clientY - rect.top;
+      lastX -= offsetX * ((scale / prevScale) - 1);
+      lastY -= offsetY * ((scale / prevScale) - 1);
+      updateTransform();
+    });
+
+    /**
+     * Adjusts the zoom level to a specific target and repositions the image
+     * so that the center of the container remains roughly focused.
+     * @param {number} target - The desired zoom scale.
+     */
+    function setZoomLevel(target) {
+      // Zoom relative to the initial fit scale; scale stores multiplier
+      const prevCombinedScale = initialFitScale * scale;
+      const newCombinedScale = initialFitScale * target;
+      const prevScale = scale;
+      scale = target;
+      // Determine the center point of the container in viewport coordinates
+      const containerRect = imageContainer.getBoundingClientRect();
+      const rect = viewerImage.getBoundingClientRect();
+      const centerX = containerRect.width / 2;
+      const centerY = containerRect.height / 2;
+      // Offset of the container center within the image
+      const offsetX = centerX - rect.left;
+      const offsetY = centerY - rect.top;
+      // Adjust translation so the image zooms around the center point
+      lastX -= offsetX * ((newCombinedScale / prevCombinedScale) - 1);
+      lastY -= offsetY * ((newCombinedScale / prevCombinedScale) - 1);
+      updateTransform();
+    }
+
+    // Obtain references to the on-screen buttons
+    const zoom5Btn = document.getElementById('zoom5Btn');
+    const zoom2Btn = document.getElementById('zoom2Btn');
+    const galleryBtn = document.getElementById('galleryBtn');
+
+    // When the 5× button is tapped, zoom to 5x
+    zoom5Btn.addEventListener('click', () => {
+      setZoomLevel(5);
+    });
+    // When the 2× button is tapped, zoom to 2x
+    zoom2Btn.addEventListener('click', () => {
+      setZoomLevel(2);
+    });
+    // Return to gallery view when the Gallery button is tapped
+    galleryBtn.addEventListener('click', () => {
+      viewer.classList.remove('active');
+    });
+  </script>
+</body>
+</html>
